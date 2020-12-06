@@ -3,37 +3,57 @@ package main
 import (
 	"fmt"
 	"net"
-	"sync"
+	"sort"
 )
 
 var IP string
 
-func ScanPort(port int, wg *sync.WaitGroup) {
-	defer wg.Done()
+func worker(ports, results chan int) {
+	IP = "localhost"
 
-	IP = "scanme.nmap.org"
+	for p := range ports {
 
-	address := fmt.Sprintf(IP+":%d", port)
-	connection, err := net.Dial("tcp", address)
-
-	if err != nil {
-		return
+		address := fmt.Sprintf(IP+":%d", p)
+		conn, err := net.Dial("tcp", address)
+		if err != nil {
+			results <- 0
+			continue
+		}
+		conn.Close()
+		results <- p
 	}
-
-	fmt.Printf("[+] Connection established... PORT %v %v\n", port, connection.RemoteAddr().String())
-	connection.Close()
 }
 
 func main() {
+	ports := 1024
 
-	var wg sync.WaitGroup
+	workers := make(chan int, 250)
+	results := make(chan int)
+	var openports []int
 
-	fmt.Println("[+] Starting...")
-
-	for i := 1; i < 100; i++ {
-		wg.Add(1)
-		go ScanPort(i, &wg)
+	for i := 0; i < cap(workers); i++ {
+		go worker(workers, results)
 	}
 
-	wg.Wait()
+	go func() {
+		for i := 1; i <= ports; i++ {
+			workers <- i
+		}
+	}()
+
+	for i := 0; i < ports; i++ {
+		port := <-results
+
+		if port != 0 {
+			openports = append(openports, port)
+		}
+	}
+
+	close(workers)
+	close(results)
+	sort.Ints(openports)
+
+	for _, port := range openports {
+		fmt.Printf("%d open \n", port)
+	}
 }
